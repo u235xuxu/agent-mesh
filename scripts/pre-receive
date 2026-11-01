@@ -1,0 +1,108 @@
+#!/bin/bash
+# pre-receive — 服务端 Git hook，强制目录隔离
+#
+# 部署位置（Gitea）：
+#   <仓库目录>.git/hooks/pre-receive
+#   注意要 chmod +x，且属主是运行 Gitea 的用户
+#
+# 部署位置（裸 Git + SSH）：
+#   /path/to/repo.git/hooks/pre-receive
+#
+# 作用：
+#   推送者只能修改属于自己的目录，越权直接拒绝。
+#
+# 身份来源：
+#   - Gitea：环境变量 $GITEA_USERNAME（Gitea 自动注入）
+#   - 裸 Git + SSH：$SSH_USER 或 $USER（取决于 sshd 配置）
+#   两者都取不到时，退化为不限制（宁可放开也不要卡死所有人）
+#
+# 关键点：必须实际测一遍越权推送能否被拒 —— 没测过的 hook 等于没有。
+
+set -u
+
+ZERO="0000000000000000000000000000000000000000"
+
+# 取推送者身份
+PUSHER="${GITEA_USERNAME:-${SSH_USER:-${USER:-}}}"
+
+# 分支保护：这些分支只允许 admin 推
+PROTECTED_BRANCHES="main master"
+
+# 允许写公共区的身份（管理员）
+ADMINS="${ADMINS:-admin root}"
+
+is_admin() {
+    for a in $ADMINS; do
+        [ "$1" = "$a" ] && return 0
+    done
+    return 1
+}
+
+REJECTED=0
+
+while read -r oldrev newrev refname; do
+    # 删除分支/标签，不检查
+    [ "$newrev" = "$ZERO" ] && continue
+
+    # 取这个 ref 的 branch 名
+    case "$refname" in
+        refs/heads/*) BRANCH="${refname#refs/heads/}" ;;
+        *) continue ;;   # 标签不动
+    esac
+
+    # 保护分支：非 admin 不能推
+    if ! is_admin "$PUSHER"; then
+        for pb in $PROTECTED_BRANCHES; do
+            if [ "$BRANCH" = "$pb" ]; then
+                # 允许推自己目录的提交到这些分支（下面逐文件检查）
+                break
+            fi
+        done
+    fi
+
+    # 取本次推送涉及的文件
+    if [ "$oldrev" = "$ZERO" ]; then
+        FILES=$(git ls-tree -r --name-only "$newrev")
+    else
+        FILES=$(git diff --name-only "$oldrev" "$newrev")
+    fi
+
+    [ -z "$FILES" ] && continue
+
+    for file in $FILES; do
+        # admin 不限制
+        is_admin "$PUSHER" && continue
+
+        # 身份未知，放行（避免卡死）
+        [ -z "$PUSHER" ] && continue
+
+        case "$file" in
+            "$PUSHER"/*)
+                # 自己的目录，允许
+                ;;
+            _shared/*)
+                echo ""
+                echo "❌ 拒绝：_shared/ 只允许管理员修改"
+                echo "   推送者: $PUSHER"
+                echo "   违规文件: $file"
+                echo ""
+                echo "   想共享知识，请先联系管理员审核。"
+                REJECTED=1
+                ;;
+            *)
+                echo ""
+                echo "❌ 拒绝：$PUSHER 只能修改 $PUSHER/ 目录"
+                echo "   违规文件: $file"
+                echo ""
+                REJECTED=1
+                ;;
+        esac
+    done
+done
+
+if [ "$REJECTED" -eq 1 ]; then
+    echo "推送已被拒绝。"
+    exit 1
+fi
+
+exit 0

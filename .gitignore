@@ -1,0 +1,19 @@
+# 实际配置（含真实 IP / 凭据）
+mesh.yaml
+*.local.yaml
+
+# 本地状态
+.local-state/
+archive/
+
+# 凭据
+.env
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# 系统
+.DS_Store
+__pycache__/
+*.py[cod]

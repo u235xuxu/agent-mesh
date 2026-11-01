@@ -1,0 +1,34 @@
+# probe_mesh.py 的配置示例
+# 复制成 mesh.yaml 后改成你自己的机器
+
+nodes:
+  - name: mybook
+    host: 192.168.1.10
+    group: local
+    ports: [22]
+
+  - name: mypc
+    host: 192.168.1.50
+    group: local
+    ports: [22, 3389]
+
+  - name: vps
+    host: 203.0.113.10      # 换成你的 VPS IP
+    group: remote
+    ports: [22, 443, 3000]
+
+  - name: macmini
+    host: 192.168.1.129
+    group: local
+    ports: [22]
+
+  # 已知的外部服务，用来验证代理是否正常
+  - name: baidu
+    host: www.baidu.com
+    group: external
+    ports: [443]
+
+  - name: github-ssh
+    host: github.com
+    group: external
+    ports: [22]
